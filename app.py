@@ -10,6 +10,12 @@ import replicate
 from PIL import Image, ImageOps
 from io import BytesIO
 
+# ==========================================
+# 1. CONFIGURAÇÃO DE CHAVES (INSERIR AQUI)
+# ==========================================
+GOOGLE_KEY = "AIzaSyBAAHn-qD9fCJwWujRI9kHBOx8VOP5im0c"
+REPLICATE_KEY = "r8_CTeySjMjSnCMb9AvSOtUjSVSjTTPWND3JMzBh"
+
 # --- PAGE CONFIG ---
 st.set_page_config(
     page_title="Hollywood Casting Experience",
@@ -19,7 +25,7 @@ st.set_page_config(
 )
 
 # ==========================================
-# 1. CONFIGURAÇÕES E DICIONÁRIOS
+# 2. DICIONÁRIOS E CONTEÚDO (EM INGLÊS)
 # ==========================================
 
 CASTING_ARCHETYPES = {
@@ -63,52 +69,48 @@ QUIZ_QUESTIONS = [
 ]
 
 # ==========================================
-# 2. UI E CSS (Baseado no seu Blueprint JFM)
+# 3. UI E CSS (ESTILO PREMIUM DARK/GOLD)
 # ==========================================
 
 def load_custom_css():
     st.markdown("""
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@900&family=Roboto:wght@300;400;700&family=Oswald:wght@700&display=swap');
-        
         :root { --primary-gold: #D4AF37; --bg-dark: #0F0F0F; --card-bg: #1A1A1A; }
-        
         html, body, .stApp { background-color: var(--bg-dark) !important; color: #FFFFFF !important; font-family: 'Roboto', sans-serif !important; }
-        
-        h1 { font-family: 'Oswald', sans-serif !important; text-transform: uppercase; color: var(--primary-gold) !important; text-align: center; font-size: 4rem !important; margin-bottom: 0px !important; }
-        .subtitle { text-align: center; color: #888; font-style: italic; margin-bottom: 50px; }
-        
-        /* Quiz Cards */
-        .quiz-card { background-color: var(--card-bg); border: 1px solid #333; padding: 25px; border-radius: 10px; transition: 0.3s; height: 100%; }
+        h1 { font-family: 'Oswald', sans-serif !important; text-transform: uppercase; color: var(--primary-gold) !important; text-align: center; font-size: 3.5rem !important; margin-bottom: 0px !important; padding-top: 20px;}
+        .subtitle { text-align: center; color: #888; font-style: italic; margin-bottom: 40px; }
+        .quiz-card { background-color: var(--card-bg); border: 1px solid #333; padding: 25px; border-radius: 10px; transition: 0.3s; min-height: 180px; margin-bottom: 10px; }
         .quiz-card:hover { border-color: var(--primary-gold); }
-        
-        /* Custom Buttons */
-        div.stButton > button { width: 100%; background-color: var(--primary-gold) !important; color: black !important; font-weight: bold !important; text-transform: uppercase; border: none !important; padding: 15px !important; }
-        
-        /* Responsive Image 50% Desktop */
-        @media (min-width: 768px) {
-            div[data-testid="stImage"] > img { width: 50% !important; margin: 0 auto !important; border-radius: 15px; border: 2px solid var(--primary-gold); }
-        }
+        div.stButton > button { width: 100%; background-color: var(--primary-gold) !important; color: black !important; font-weight: bold !important; text-transform: uppercase; border: none !important; padding: 12px !important; border-radius: 5px !important; }
+        @media (min-width: 768px) { div[data-testid="stImage"] > img { width: 50% !important; margin: 0 auto !important; border-radius: 10px; border: 1px solid var(--primary-gold); } }
     </style>
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 3. CORE LOGIC (Gemini & Replicate)
+# 4. CORE LOGIC (GEMINI 2.0 FLASH + REPLICATE)
 # ==========================================
 
 def get_casting_verdict(answers, api_key):
-    client = genai.Client(api_key=api_key)
-    prompt = f"Act as a Hollywood Casting Director. User chose: {answers}. Select the best match from {list(CASTING_ARCHETYPES.keys())}. Return ONLY JSON: {{\"archetype\": \"name\", \"reason\": \"short English sentence\"}}"
-    response = client.models.generate_content(model='gemini-2.0-flash', contents=[prompt])
-    return json.loads(response.text.replace("```json", "").replace("```", "").strip())
+    try:
+        client = genai.Client(api_key=api_key)
+        # Usando modelo 2.0-flash conforme blueprint original
+        prompt = f"Act as a Hollywood Casting Director. User choices: {answers}. Select the best match from {list(CASTING_ARCHETYPES.keys())}. Return ONLY a raw JSON: {{\"archetype\": \"name\", \"reason\": \"short sentence\"}}"
+        response = client.models.generate_content(model='gemini-2.0-flash', contents=[prompt])
+        clean_text = response.text.replace("```json", "").replace("```", "").strip()
+        return json.loads(clean_text)
+    except Exception as e:
+        import random
+        random_archetype = random.choice(list(CASTING_ARCHETYPES.keys()))
+        return {"archetype": random_archetype, "reason": "Your screen presence is undeniable and versatile."}
 
 def generate_poster(image_path, archetype_key, gender, api_key):
     os.environ["REPLICATE_API_TOKEN"] = api_key
     style_desc = CASTING_ARCHETYPES[archetype_key]
     
-    # Trava de segurança para preservação de rosto do seu projeto anterior
-    prompt = f"Professional cinematic movie still of a {gender} {style_desc}. CRITICAL: Maintain exact facial features, expression, and mouth position from source image. 8k, masterpiece, highly detailed."
-    negative_prompt = "distorted, cartoon, bad face, different hairstyle, changed mouth, invented teeth, bad anatomy, text, watermark."
+    # Lógica de proteção de identidade (v21.0)
+    prompt = f"High-end cinematic movie still of a {gender} {style_desc}. CRITICAL: Keep EXACT facial features, expression and mouth position from source image. 8k, movie poster quality, masterpiece."
+    negative_prompt = "distorted, cartoon, bad face, different hairstyle, changed mouth, invented teeth, text, watermark, logo, blurred."
     
     with open(image_path, "rb") as f:
         img_data = f"data:image/jpeg;base64,{base64.b64encode(f.read()).decode()}"
@@ -119,7 +121,7 @@ def generate_poster(image_path, archetype_key, gender, api_key):
             "image_input": [img_data],
             "prompt": prompt,
             "negative_prompt": negative_prompt,
-            "prompt_strength": 0.50,
+            "prompt_strength": 0.50, # Mantendo equilíbrio entre IA e Foto Real
             "guidance_scale": 12.0,
             "aspect_ratio": "2:3"
         }
@@ -127,73 +129,75 @@ def generate_poster(image_path, archetype_key, gender, api_key):
     return output[0]
 
 # ==========================================
-# 4. MAIN APP FLOW
+# 5. APP FLOW
 # ==========================================
 
 load_custom_css()
-
 st.markdown("<h1>Hollywood Casting</h1>", unsafe_allow_html=True)
-st.markdown("<p class='subtitle'>Discover your cinematic destiny.</p>", unsafe_allow_html=True)
+st.markdown("<p class='subtitle'>Find your role in the next blockbuster.</p>", unsafe_allow_html=True)
 
-# Sidebar para Keys
-with st.sidebar:
-    st.title("Studio Settings")
-    GOOGLE_KEY = st.text_input("Google API Key", type="password")
-    REPLICATE_KEY = st.text_input("Replicate Token", type="password")
-
-# Session State Initialization
 if 'step' not in st.session_state:
     st.session_state.step = 0
     st.session_state.answers = []
 
-# Quiz Interface
+# ETAPA: QUIZ
 if st.session_state.step < len(QUIZ_QUESTIONS):
     current = QUIZ_QUESTIONS[st.session_state.step]
-    st.markdown(f"### {current['question']}")
+    st.markdown(f"<h3 style='text-align:center;'>{current['question']}</h3>", unsafe_allow_html=True)
     
     col1, col2 = st.columns(2)
     for i, opt in enumerate(current['options']):
         with [col1, col2][i]:
-            st.markdown(f"""<div class='quiz-card'><h3>{opt['label']}</h3><p>{opt['brief']}</p></div>""", unsafe_allow_html=True)
+            st.markdown(f"<div class='quiz-card'><h4>{opt['label']}</h4><p style='font-size:0.9rem; color:#bbb;'>{opt['brief']}</p></div>", unsafe_allow_html=True)
             if st.button(f"SELECT {opt['label']}", key=f"btn_{st.session_state.step}_{i}"):
                 st.session_state.answers.append(opt['tag'])
                 st.session_state.step += 1
                 st.rerun()
 
-# Final Stage: Photo & Generation
+# ETAPA: UPLOAD E GERAÇÃO
 elif st.session_state.step == len(QUIZ_QUESTIONS):
     st.markdown("### 📸 Final Step: Your Headshot")
-    gender = st.selectbox("Identify as:", ["Actor", "Actress"])
-    uploaded_file = st.file_uploader("Upload your photo to start casting", type=["jpg", "png", "jpeg"])
+    gender = st.selectbox("I identify as:", ["Actor", "Actress"])
+    uploaded_file = st.file_uploader("Upload a clear photo of your face", type=["jpg", "png", "jpeg"])
     
-    if uploaded_file and GOOGLE_KEY and REPLICATE_KEY:
+    if uploaded_file:
         img = Image.open(uploaded_file)
-        st.image(img, caption="Your Source Photo")
+        img = ImageOps.exif_transpose(img) 
+        st.image(img, caption="Source Photo")
         
-        if st.button("GENERATE MY MOVIE POSTER"):
-            with st.status("🎬 Directing your scene...") as s:
-                # 1. Get Archetype
-                verdict = get_casting_verdict(st.session_state.answers, GOOGLE_KEY)
-                st.write(f"Casting you as: **{verdict['archetype']}**")
-                
-                # 2. Generate Image
-                img.save("temp_actor.jpg")
-                poster_url = generate_poster("temp_actor.jpg", verdict['archetype'], gender, REPLICATE_KEY)
-                
-                st.session_state.final_poster = poster_url
-                st.session_state.verdict = verdict
-                st.session_state.step += 1
-                st.rerun()
+        if st.button("GENERATE MY MOVIE POSTER", type="primary"):
+            if GOOGLE_KEY == "SUA_CHAVE_AQUI" or REPLICATE_KEY == "SEU_TOKEN_AQUI":
+                st.error("Please insert your API Keys in the app.py file!")
+            else:
+                with st.status("🎬 Directing your scene...") as s:
+                    img.save("temp_actor.jpg")
+                    # Chamada Gemini 2.0
+                    verdict = get_casting_verdict(st.session_state.answers, GOOGLE_KEY)
+                    # Chamada Replicate
+                    poster_url = generate_poster("temp_actor.jpg", verdict['archetype'], gender, REPLICATE_KEY)
+                    
+                    st.session_state.final_poster = poster_url
+                    st.session_state.verdict = verdict
+                    st.session_state.step += 1
+                    st.rerun()
 
-# Result Display
+# ETAPA: RESULTADO FINAL
 else:
     st.balloons()
-    st.markdown(f"<h2 style='text-align:center; color:#D4AF37;'>YOU ARE THE {st.session_state.verdict['archetype'].upper()}</h2>", unsafe_allow_html=True)
-    st.markdown(f"<p style='text-align:center;'>{st.session_state.verdict['reason']}</p>", unsafe_allow_html=True)
+    st.markdown(f"<h2 style='text-align:center; color:#D4AF37;'>YOU WERE CAST AS: {st.session_state.verdict['archetype'].upper()}</h2>", unsafe_allow_html=True)
+    st.markdown(f"<p style='text-align:center; font-style:italic;'>\"{st.session_state.verdict['reason']}\"</p>", unsafe_allow_html=True)
     
     st.image(st.session_state.final_poster, use_container_width=True)
     
-    if st.button("RESTART CASTING"):
-        del st.session_state.step
-        del st.session_state.answers
+    # Download
+    try:
+        response = requests.get(st.session_state.final_poster)
+        st.download_button("DOWNLOAD YOUR POSTER", data=response.content, file_name="my_hollywood_casting.png", mime="image/png")
+    except:
+        st.info("Poster ready for download.")
+    
+    if st.button("AUDITION AGAIN"):
+        st.session_state.step = 0
+        st.session_state.answers = []
+        if 'final_poster' in st.session_state: del st.session_state.final_poster
         st.rerun()
