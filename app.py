@@ -11,10 +11,20 @@ from PIL import Image, ImageOps
 from io import BytesIO
 
 # ==========================================
-# 1. CONFIGURAÇÃO DE CHAVES (VIA SECRETS)
+# 1. CONFIGURAÇÃO DE CHAVES (SUPER SEGURA)
 # ==========================================
+
+# O Streamlit guarda as chaves em st.secrets. Vamos tentar todos os nomes comuns:
 GOOGLE_KEY = st.secrets.get("GOOGLE_KEY", "")
-REPLICATE_KEY = st.secrets.get("REPLICATE_KEY", st.secrets.get("REPLICATE_TOKEN", ""))
+
+# Tenta pegar o token do Replicate de qualquer lugar possível:
+REPLICATE_KEY = st.secrets.get("REPLICATE_KEY", 
+                st.secrets.get("REPLICATE_API_TOKEN", 
+                st.secrets.get("REPLICATE_TOKEN", "")))
+
+# Força a variável de ambiente que a biblioteca do Replicate exige
+if REPLICATE_KEY:
+    os.environ["REPLICATE_API_TOKEN"] = REPLICATE_KEY
 
 # --- PAGE CONFIG ---
 st.set_page_config(
@@ -25,7 +35,7 @@ st.set_page_config(
 )
 
 # ==========================================
-# 2. DICIONÁRIOS E CONTEÚDO
+# 2. CONTEÚDO
 # ==========================================
 
 CASTING_ARCHETYPES = {
@@ -103,31 +113,28 @@ def get_casting_verdict(answers, api_key):
         return {"archetype": random.choice(list(CASTING_ARCHETYPES.keys())), "reason": "Your screen presence is undeniable."}
 
 def generate_poster(image_path, archetype_key, gender, api_key):
-    os.environ["REPLICATE_API_TOKEN"] = api_key
+    # Forçamos o token no cliente do Replicate
+    client = replicate.Client(api_token=api_key)
     style_desc = CASTING_ARCHETYPES[archetype_key]
     
-    # 1. Transformar a imagem em string Base64 manualmente para evitar erro de upload (/v1/files)
     with open(image_path, "rb") as f:
         data = base64.b64encode(f.read()).decode('utf-8')
         image_data = f"data:image/jpeg;base64,{data}"
     
-    # 2. Chamada usando o modelo público lucataco com o input direto em texto
-    try:
-        output = replicate.run(
-            "lucataco/google-nano-banana:92f7c004a4341b559ba962804b3117565b530f9a76d1a9da5e386a347b744f43",
-            input={
-                "image": image_data, # Enviando como Base64 ignora o erro de upload
-                "prompt": f"Professional cinematic movie still of a {gender} {style_desc}. Masterpiece lighting, 8k.",
-                "negative_prompt": "distorted, bad anatomy, text, logo, watermark",
-                "prompt_strength": 0.5,
-                "guidance_scale": 10,
-                "aspect_ratio": "2:3"
-            }
-        )
-        return output[0] if isinstance(output, list) else output
-    except Exception as e:
-        st.error(f"Generation Error: {e}")
-        return None
+    prompt = f"Professional cinematic movie still of a {gender} {style_desc}. 8k, masterpiece lighting."
+    
+    # Chamada usando o cliente instanciado para evitar erro 401
+    output = client.run(
+        "lucataco/google-nano-banana:92f7c004a4341b559ba962804b3117565b530f9a76d1a9da5e386a347b744f43",
+        input={
+            "image": image_data,
+            "prompt": prompt,
+            "prompt_strength": 0.5,
+            "guidance_scale": 10,
+            "aspect_ratio": "2:3"
+        }
+    )
+    return output[0] if isinstance(output, list) else output
 
 # ==========================================
 # 5. FLUXO DO APLICATIVO
@@ -135,10 +142,11 @@ def generate_poster(image_path, archetype_key, gender, api_key):
 
 load_custom_css()
 st.markdown("<h1>Hollywood Casting</h1>", unsafe_allow_html=True)
-st.markdown("<p class='subtitle'>Action! Your career starts here.</p>", unsafe_allow_html=True)
+st.markdown("<p class='subtitle'>Find your role in the next blockbuster.</p>", unsafe_allow_html=True)
 
-if not GOOGLE_KEY or not REPLICATE_KEY:
-    st.error("❌ API Keys missing in Secrets. Please check GOOGLE_KEY and REPLICATE_KEY.")
+# Diagnóstico de Chaves (Apenas para você ver se está funcionando)
+if not REPLICATE_KEY:
+    st.error("❌ REPLICATE_KEY is empty. Please check Streamlit Secrets.")
     st.stop()
 
 if 'step' not in st.session_state:
@@ -172,6 +180,8 @@ elif st.session_state.step == len(QUIZ_QUESTIONS):
             with st.status("🎬 Directing your scene...") as s:
                 img.save("temp_actor.jpg")
                 verdict = get_casting_verdict(st.session_state.answers, GOOGLE_KEY)
+                
+                # Chamada passando a chave explicitamente
                 poster_url = generate_poster("temp_actor.jpg", verdict['archetype'], gender, REPLICATE_KEY)
                 
                 if poster_url:
