@@ -88,7 +88,7 @@ def load_custom_css():
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 4. LÓGICA DE IA
+# 4. LÓGICA DE IA (GEMINI 2.0 FLASH + REPLICATE)
 # ==========================================
 
 def get_casting_verdict(answers, api_key):
@@ -107,39 +107,19 @@ def generate_poster(image_path, archetype_key, gender, api_key):
     style_desc = CASTING_ARCHETYPES[archetype_key]
     
     with open(image_path, "rb") as image_file:
-        data = base64.b64encode(image_file.read()).decode('utf-8')
-        image_b64 = f"data:image/jpeg;base64,{data}"
-
-    prompt = f"High-end cinematic movie still of a {gender} {style_desc}. CRITICAL: Keep EXACT facial features from source image. 8k, movie poster quality."
-    
-    # Tentativa com o formato padrão de muitos modelos Google no Replicate
-    try:
+        # Usando a implementação pública 'lucataco' que é mais robusta para APIs externas
         output = replicate.run(
-            "google/nano-banana-pro",
+            "lucataco/google-nano-banana:92f7c004a4341b559ba962804b3117565b530f9a76d1a9da5e386a347b744f43",
             input={
-                "image": image_b64, # Mudança aqui: de image_input para image
-                "prompt": prompt,
-                "prompt_strength": 0.45,
-                "guidance_scale": 12.0,
-                "aspect_ratio": "2:3",
-                "safety_filter_level": "block_only_high"
-            }
-        )
-        return output[0] if isinstance(output, list) else output
-    except Exception as e:
-        # Se falhar com 'image', tenta o formato de lista 'image_input'
-        st.write(f"Refining director's cut... (Retrying with alternative input)")
-        output = replicate.run(
-            "google/nano-banana-pro",
-            input={
-                "image_input": [image_b64],
-                "prompt": prompt,
-                "prompt_strength": 0.45,
-                "guidance_scale": 12.0,
+                "image": image_file,
+                "prompt": f"Professional movie still of a {gender} {style_desc}. Cinematic lighting, 8k resolution.",
+                "negative_prompt": "distorted, bad anatomy, bad face, text, logo, watermark",
+                "prompt_strength": 0.5,
+                "guidance_scale": 10,
                 "aspect_ratio": "2:3"
             }
         )
-        return output[0] if isinstance(output, list) else output
+    return output[0] if isinstance(output, list) else output
 
 # ==========================================
 # 5. FLUXO DO APLICATIVO
