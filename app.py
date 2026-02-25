@@ -88,7 +88,7 @@ def load_custom_css():
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 4. LÓGICA DE IA (GEMINI 2.0 FLASH + REPLICATE)
+# 4. LÓGICA DE IA
 # ==========================================
 
 def get_casting_verdict(answers, api_key):
@@ -106,20 +106,28 @@ def generate_poster(image_path, archetype_key, gender, api_key):
     os.environ["REPLICATE_API_TOKEN"] = api_key
     style_desc = CASTING_ARCHETYPES[archetype_key]
     
-    with open(image_path, "rb") as image_file:
-        # Usando a implementação pública 'lucataco' que é mais robusta para APIs externas
+    # 1. Transformar a imagem em string Base64 manualmente para evitar erro de upload (/v1/files)
+    with open(image_path, "rb") as f:
+        data = base64.b64encode(f.read()).decode('utf-8')
+        image_data = f"data:image/jpeg;base64,{data}"
+    
+    # 2. Chamada usando o modelo público lucataco com o input direto em texto
+    try:
         output = replicate.run(
             "lucataco/google-nano-banana:92f7c004a4341b559ba962804b3117565b530f9a76d1a9da5e386a347b744f43",
             input={
-                "image": image_file,
-                "prompt": f"Professional movie still of a {gender} {style_desc}. Cinematic lighting, 8k resolution.",
-                "negative_prompt": "distorted, bad anatomy, bad face, text, logo, watermark",
+                "image": image_data, # Enviando como Base64 ignora o erro de upload
+                "prompt": f"Professional cinematic movie still of a {gender} {style_desc}. Masterpiece lighting, 8k.",
+                "negative_prompt": "distorted, bad anatomy, text, logo, watermark",
                 "prompt_strength": 0.5,
                 "guidance_scale": 10,
                 "aspect_ratio": "2:3"
             }
         )
-    return output[0] if isinstance(output, list) else output
+        return output[0] if isinstance(output, list) else output
+    except Exception as e:
+        st.error(f"Generation Error: {e}")
+        return None
 
 # ==========================================
 # 5. FLUXO DO APLICATIVO
