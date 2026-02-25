@@ -1,7 +1,5 @@
 import streamlit as st
-import streamlit.components.v1 as components
 import os
-import time
 import base64
 import json
 import requests
@@ -11,142 +9,97 @@ from PIL import Image, ImageOps
 from io import BytesIO
 
 # ==========================================
-# 1. CONFIGURAÇÃO DE CHAVES (SUPER SEGURA)
+# 1. CONFIGURAÇÃO DE CHAVES (VIA SECRETS)
 # ==========================================
-
-# O Streamlit guarda as chaves em st.secrets. Vamos tentar todos os nomes comuns:
 GOOGLE_KEY = st.secrets.get("GOOGLE_KEY", "")
+REPLICATE_KEY = st.secrets.get("REPLICATE_KEY", st.secrets.get("REPLICATE_API_TOKEN", ""))
 
-# Tenta pegar o token do Replicate de qualquer lugar possível:
-REPLICATE_KEY = st.secrets.get("REPLICATE_KEY", 
-                st.secrets.get("REPLICATE_API_TOKEN", 
-                st.secrets.get("REPLICATE_TOKEN", "")))
-
-# Força a variável de ambiente que a biblioteca do Replicate exige
 if REPLICATE_KEY:
     os.environ["REPLICATE_API_TOKEN"] = REPLICATE_KEY
 
 # --- PAGE CONFIG ---
-st.set_page_config(
-    page_title="Hollywood Casting Experience",
-    page_icon="🎬",
-    layout="wide",
-    initial_sidebar_state="collapsed"
-)
+st.set_page_config(page_title="Hollywood Casting", page_icon="🎬", layout="wide")
 
 # ==========================================
 # 2. CONTEÚDO
 # ==========================================
-
 CASTING_ARCHETYPES = {
-    "Resistance Leader": "Post-apocalyptic survivor, tactical gear, war paint, fierce gaze, desert ruins background, high contrast, gritty texture.",
-    "Noir Mastermind": "Classic Film Noir style, dramatic chiaroscuro lighting, sharp suit or trench coat, mysterious atmosphere, detective office shadows.",
-    "Frontier Explorer": "Sci-fi astronaut, high-tech space suit, bioluminescent details, alien planet landscape, cinematic lighting, epic scale.",
-    "Lone Justiciar": "Modern Western vigilante, leather jacket, silhouette against sunset, dusty atmosphere, intense cinematic gaze.",
-    "Epic Divinity": "High fantasy hero, ornate light armor, ethereal glowing elements, ancient forest background, magical atmosphere.",
-    "Elite Disciplinarian": "Intense dramatic portrait, sweat and grit, professional training environment, focused expression, cinematic backlight.",
-    "Classic Icon": "1920s high society glamour, luxury ballroom, velvet textures, classic Hollywood lighting, elegant stance.",
-    "Cyberpunk Vigilante": "Cybernetic enhancements, neon-lit rainy street, tech-wear, futuristic city, vibrant teal and orange lighting.",
-    "Zen Master": "Traditional martial arts attire, flowing fabric, serene temple or bamboo forest, perfect balance, soft morning mist.",
-    "Arcane Investigator": "Supernatural detective, ancient library, floating books, mystical artifacts, warm candlelight vs cold shadows."
+    "Resistance Leader": "Post-apocalyptic survivor, tactical gear, war paint, fierce gaze, desert ruins, cinematic lighting, gritty.",
+    "Noir Mastermind": "Film Noir style, chiaroscuro lighting, suit and fedora, mysterious, detective office shadows, 1940s.",
+    "Frontier Explorer": "Sci-fi astronaut, high-tech suit, bioluminescent details, alien planet, epic cinematic scale.",
+    "Lone Justiciar": "Modern Western vigilante, leather jacket, silhouette against sunset, dusty, intense gaze.",
+    "Epic Divinity": "High fantasy hero, ornate armor, ethereal glowing elements, ancient forest, magical atmosphere.",
+    "Elite Disciplinarian": "Intense dramatic portrait, sweat and grit, focused expression, cinematic backlight.",
+    "Classic Icon": "1920s high society glamour, luxury ballroom, velvet textures, classic Hollywood lighting.",
+    "Cyberpunk Vigilante": "Cybernetic enhancements, neon-lit rainy street, tech-wear, futuristic city, teal and orange lighting.",
+    "Zen Master": "Martial arts attire, flowing fabric, serene temple, bamboo forest, soft mist, cinematic.",
+    "Arcane Investigator": "Supernatural detective, ancient library, floating books, mystical artifacts, warm candlelight."
 }
 
 QUIZ_QUESTIONS = [
-    {
-        "step": 1,
-        "question": "Choose the world you belong to:",
-        "options": [
-            {"label": "THE FRONTIER", "brief": "A team of explorers travel through a wormhole in space to ensure humanity's survival.", "tag": "Explorer"},
-            {"label": "THE STREETS", "brief": "A retired assassin is forced back into the criminal underworld to avenge a personal loss.", "tag": "Vigilante"}
-        ]
-    },
-    {
-        "step": 2,
-        "question": "What defines your strategy?",
-        "options": [
-            {"label": "THE ARCHITECT", "brief": "A skilled thief steals secrets through dream-sharing technology and subconscious layers.", "tag": "Mastermind"},
-            {"label": "THE AVENGER", "brief": "A former General seeks revenge against a corrupt empire in the grand arenas of history.", "tag": "Epic"}
-        ]
-    },
-    {
-        "step": 3,
-        "question": "Pick your visual atmosphere:",
-        "options": [
-            {"label": "NEON DREAMS", "brief": "A detective in a rainy futuristic city hunts down rogue synthetic humans.", "tag": "Cyberpunk"},
-            {"label": "GOLDEN AGE", "brief": "A mysterious millionaire throws lavish parties while chasing a dream from the past.", "tag": "Classic"}
-        ]
-    }
+    {"step": 1, "question": "Choose the world you belong to:", "options": [{"label": "THE FRONTIER", "tag": "Explorer"}, {"label": "THE STREETS", "tag": "Vigilante"}]},
+    {"step": 2, "question": "What defines your strategy?", "options": [{"label": "THE ARCHITECT", "tag": "Mastermind"}, {"label": "THE AVENGER", "tag": "Epic"}]},
+    {"step": 3, "question": "Pick your visual atmosphere:", "options": [{"label": "NEON DREAMS", "tag": "Cyberpunk"}, {"label": "GOLDEN AGE", "tag": "Classic"}]}
 ]
 
 # ==========================================
-# 3. UI E DESIGN
+# 3. UI / CSS
 # ==========================================
-
-def load_custom_css():
-    st.markdown("""
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@900&family=Roboto:wght@300;400;700&family=Oswald:wght@700&display=swap');
-        :root { --primary-gold: #D4AF37; --bg-dark: #0F0F0F; --card-bg: #1A1A1A; }
-        html, body, .stApp { background-color: var(--bg-dark) !important; color: #FFFFFF !important; font-family: 'Roboto', sans-serif !important; }
-        h1 { font-family: 'Oswald', sans-serif !important; text-transform: uppercase; color: var(--primary-gold) !important; text-align: center; font-size: 3.5rem !important; margin-bottom: 0px !important; padding-top: 20px;}
-        .subtitle { text-align: center; color: #888; font-style: italic; margin-bottom: 40px; }
-        .quiz-card { background-color: var(--card-bg); border: 1px solid #333; padding: 25px; border-radius: 10px; transition: 0.3s; min-height: 180px; margin-bottom: 10px; }
-        .quiz-card:hover { border-color: var(--primary-gold); }
-        div.stButton > button { width: 100%; background-color: var(--primary-gold) !important; color: black !important; font-weight: bold !important; text-transform: uppercase; border: none !important; padding: 12px !important; border-radius: 5px !important; }
-        @media (min-width: 768px) { div[data-testid="stImage"] > img { width: 50% !important; margin: 0 auto !important; border-radius: 10px; border: 1px solid var(--primary-gold); } }
-    </style>
-    """, unsafe_allow_html=True)
+st.markdown("""
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@700&family=Roboto:wght@400&display=swap');
+    :root { --gold: #D4AF37; --bg: #0F0F0F; }
+    html, body, .stApp { background-color: var(--bg) !important; color: white !important; font-family: 'Roboto', sans-serif !important; }
+    h1 { font-family: 'Oswald' !important; color: var(--gold) !important; text-align: center; text-transform: uppercase; font-size: 3.5rem !important; }
+    .quiz-card { background: #1A1A1A; border: 1px solid #333; padding: 20px; border-radius: 10px; text-align: center; margin-bottom: 10px; }
+    div.stButton > button { background: var(--gold) !important; color: black !important; font-weight: bold !important; width: 100%; border-radius: 5px; }
+</style>
+""", unsafe_allow_html=True)
 
 # ==========================================
-# 4. LÓGICA DE IA
+# 4. LÓGICA
 # ==========================================
-
 def get_casting_verdict(answers, api_key):
     try:
         client = genai.Client(api_key=api_key)
-        prompt = f"Act as a Hollywood Casting Director. User choices: {answers}. Select the best match from {list(CASTING_ARCHETYPES.keys())}. Return ONLY a raw JSON: {{\"archetype\": \"name\", \"reason\": \"short sentence\"}}"
+        prompt = f"Casting Director: User likes {answers}. Match one from {list(CASTING_ARCHETYPES.keys())}. Return JSON: {{\"archetype\": \"name\", \"reason\": \"short sentence\"}}"
         response = client.models.generate_content(model='gemini-2.0-flash', contents=[prompt])
-        clean_text = response.text.replace("```json", "").replace("```", "").strip()
-        return json.loads(clean_text)
+        return json.loads(response.text.replace("```json", "").replace("```", "").strip())
     except:
-        import random
-        return {"archetype": random.choice(list(CASTING_ARCHETYPES.keys())), "reason": "Your screen presence is undeniable."}
+        return {"archetype": "Classic Icon", "reason": "You have a timeless screen presence."}
 
 def generate_poster(image_path, archetype_key, gender, api_key):
-    # Forçamos o token no cliente do Replicate
     client = replicate.Client(api_token=api_key)
-    style_desc = CASTING_ARCHETYPES[archetype_key]
+    style = CASTING_ARCHETYPES[archetype_key]
     
     with open(image_path, "rb") as f:
-        data = base64.b64encode(f.read()).decode('utf-8')
-        image_data = f"data:image/jpeg;base64,{data}"
-    
-    prompt = f"Professional cinematic movie still of a {gender} {style_desc}. 8k, masterpiece lighting."
-    
-    # Chamada usando o cliente instanciado para evitar erro 401
-    output = client.run(
-        "lucataco/google-nano-banana:92f7c004a4341b559ba962804b3117565b530f9a76d1a9da5e386a347b744f43",
-        input={
-            "image": image_data,
-            "prompt": prompt,
-            "prompt_strength": 0.5,
-            "guidance_scale": 10,
-            "aspect_ratio": "2:3"
-        }
-    )
-    return output[0] if isinstance(output, list) else output
+        img_b64 = f"data:image/jpeg;base64,{base64.b64encode(f.read()).decode()}"
+
+    # Mudando para o modelo SDXL FaceID ou Realistic para garantir que funcione
+    try:
+        output = client.run(
+            "tencentarc/photomaker:ddfc2b6a45641951921a882ee57bd56130286cd9ad95130daef6795f63d50839",
+            input={
+                "input_image": img_b64,
+                "prompt": f"A photo of a {gender} as a {style}, cinematic movie poster, high quality",
+                "negative_prompt": "ugly, distorted, low quality, wedding, text",
+                "num_steps": 30,
+                "style_name": "Photographic",
+                "guidence_scale": 5
+            }
+        )
+        return output[0]
+    except Exception as e:
+        st.error(f"Replicate Error: {e}")
+        return None
 
 # ==========================================
-# 5. FLUXO DO APLICATIVO
+# 5. FLOW
 # ==========================================
-
-load_custom_css()
 st.markdown("<h1>Hollywood Casting</h1>", unsafe_allow_html=True)
-st.markdown("<p class='subtitle'>Find your role in the next blockbuster.</p>", unsafe_allow_html=True)
 
-# Diagnóstico de Chaves (Apenas para você ver se está funcionando)
 if not REPLICATE_KEY:
-    st.error("❌ REPLICATE_KEY is empty. Please check Streamlit Secrets.")
+    st.error("❌ REPLICATE_KEY is missing in Secrets.")
     st.stop()
 
 if 'step' not in st.session_state:
@@ -154,56 +107,37 @@ if 'step' not in st.session_state:
     st.session_state.answers = []
 
 if st.session_state.step < len(QUIZ_QUESTIONS):
-    current = QUIZ_QUESTIONS[st.session_state.step]
-    st.markdown(f"<h3 style='text-align:center;'>{current['question']}</h3>", unsafe_allow_html=True)
-    
-    col1, col2 = st.columns(2)
-    for i, opt in enumerate(current['options']):
-        with [col1, col2][i]:
-            st.markdown(f"<div class='quiz-card'><h4>{opt['label']}</h4><p style='font-size:0.9rem; color:#bbb;'>{opt['brief']}</p></div>", unsafe_allow_html=True)
-            if st.button(f"SELECT {opt['label']}", key=f"btn_{st.session_state.step}_{i}"):
+    q = QUIZ_QUESTIONS[st.session_state.step]
+    st.markdown(f"### {q['question']}")
+    cols = st.columns(2)
+    for i, opt in enumerate(q['options']):
+        with cols[i]:
+            st.markdown(f"<div class='quiz-card'><h4>{opt['label']}</h4></div>", unsafe_allow_html=True)
+            if st.button(f"CHOOSE {opt['label']}", key=f"q{st.session_state.step}{i}"):
                 st.session_state.answers.append(opt['tag'])
                 st.session_state.step += 1
                 st.rerun()
 
 elif st.session_state.step == len(QUIZ_QUESTIONS):
-    st.markdown("### 📸 Final Step: Your Headshot")
-    gender = st.selectbox("I identify as:", ["Actor", "Actress"])
-    uploaded_file = st.file_uploader("Upload a clear photo of your face", type=["jpg", "png", "jpeg"])
-    
-    if uploaded_file:
-        img = Image.open(uploaded_file)
-        img = ImageOps.exif_transpose(img) 
-        st.image(img, caption="Ready for Casting")
-        
-        if st.button("GENERATE MY MOVIE POSTER", type="primary"):
-            with st.status("🎬 Directing your scene...") as s:
-                img.save("temp_actor.jpg")
-                verdict = get_casting_verdict(st.session_state.answers, GOOGLE_KEY)
-                
-                # Chamada passando a chave explicitamente
-                poster_url = generate_poster("temp_actor.jpg", verdict['archetype'], gender, REPLICATE_KEY)
-                
-                if poster_url:
-                    st.session_state.final_poster = poster_url
-                    st.session_state.verdict = verdict
+    gender = st.selectbox("I am an:", ["Actor", "Actress"])
+    file = st.file_uploader("Your Headshot", type=["jpg", "png", "jpeg"])
+    if file:
+        img = Image.open(file)
+        st.image(img, width=300)
+        if st.button("CAST ME!"):
+            with st.status("🎬 Directing..."):
+                img.save("temp.jpg")
+                v = get_casting_verdict(st.session_state.answers, GOOGLE_KEY)
+                url = generate_poster("temp.jpg", v['archetype'], gender, REPLICATE_KEY)
+                if url:
+                    st.session_state.url = url
+                    st.session_state.v = v
                     st.session_state.step += 1
                     st.rerun()
-
 else:
     st.balloons()
-    st.markdown(f"<h2 style='text-align:center; color:#D4AF37;'>CASTED AS: {st.session_state.verdict['archetype'].upper()}</h2>", unsafe_allow_html=True)
-    st.markdown(f"<p style='text-align:center; font-style:italic;'>\"{st.session_state.verdict['reason']}\"</p>", unsafe_allow_html=True)
-    
-    st.image(st.session_state.final_poster, use_container_width=True)
-    
-    try:
-        dl_res = requests.get(st.session_state.final_poster)
-        st.download_button("DOWNLOAD POSTER", data=dl_res.content, file_name="hollywood_star.png", mime="image/png")
-    except: pass
-    
-    if st.button("NEW AUDITION"):
+    st.markdown(f"<h2 style='color:#D4AF37; text-align:center;'>{st.session_state.v['archetype'].upper()}</h2>", unsafe_allow_html=True)
+    st.image(st.session_state.url, use_container_width=True)
+    if st.button("RESTART"):
         st.session_state.step = 0
-        st.session_state.answers = []
-        if 'final_poster' in st.session_state: del st.session_state.final_poster
         st.rerun()
