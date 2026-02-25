@@ -11,10 +11,16 @@ from PIL import Image, ImageOps
 from io import BytesIO
 
 # ==========================================
-# 1. CONFIGURAÇÃO DE CHAVES (INSERIR AQUI)
+# 1. CONFIGURAÇÃO DE CHAVES (VIA SECRETS)
 # ==========================================
-GOOGLE_KEY = "AIzaSyBAAHn-qD9fCJwWujRI9kHBOx8VOP5im0c"
-REPLICATE_KEY = "r8_CTeySjMjSnCMb9AvSOtUjSVSjTTPWND3JMzBh"
+GOOGLE_KEY = ""
+REPLICATE_KEY = ""
+
+try:
+    GOOGLE_KEY = st.secrets["GOOGLE_KEY"]
+    REPLICATE_KEY = st.secrets["REPLICATE_KEY"]
+except:
+    pass
 
 # --- PAGE CONFIG ---
 st.set_page_config(
@@ -25,7 +31,7 @@ st.set_page_config(
 )
 
 # ==========================================
-# 2. DICIONÁRIOS E CONTEÚDO (EM INGLÊS)
+# 2. DICIONÁRIOS E CONTEÚDO
 # ==========================================
 
 CASTING_ARCHETYPES = {
@@ -69,7 +75,7 @@ QUIZ_QUESTIONS = [
 ]
 
 # ==========================================
-# 3. UI E CSS (ESTILO PREMIUM DARK/GOLD)
+# 3. UI E DESIGN
 # ==========================================
 
 def load_custom_css():
@@ -88,59 +94,57 @@ def load_custom_css():
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 4. CORE LOGIC (GEMINI 2.0 FLASH + REPLICATE)
+# 4. LÓGICA DE IA
 # ==========================================
 
 def get_casting_verdict(answers, api_key):
     try:
         client = genai.Client(api_key=api_key)
-        # Usando modelo 2.0-flash conforme blueprint original
         prompt = f"Act as a Hollywood Casting Director. User choices: {answers}. Select the best match from {list(CASTING_ARCHETYPES.keys())}. Return ONLY a raw JSON: {{\"archetype\": \"name\", \"reason\": \"short sentence\"}}"
         response = client.models.generate_content(model='gemini-2.0-flash', contents=[prompt])
         clean_text = response.text.replace("```json", "").replace("```", "").strip()
         return json.loads(clean_text)
-    except Exception as e:
+    except:
         import random
-        random_archetype = random.choice(list(CASTING_ARCHETYPES.keys()))
-        return {"archetype": random_archetype, "reason": "Your screen presence is undeniable and versatile."}
+        return {"archetype": random.choice(list(CASTING_ARCHETYPES.keys())), "reason": "Your screen presence is undeniable."}
 
 def generate_poster(image_path, archetype_key, gender, api_key):
     os.environ["REPLICATE_API_TOKEN"] = api_key
     style_desc = CASTING_ARCHETYPES[archetype_key]
     
-    # Lógica de proteção de identidade (v21.0)
-    prompt = f"High-end cinematic movie still of a {gender} {style_desc}. CRITICAL: Keep EXACT facial features, expression and mouth position from source image. 8k, movie poster quality, masterpiece."
-    negative_prompt = "distorted, cartoon, bad face, different hairstyle, changed mouth, invented teeth, text, watermark, logo, blurred."
+    prompt = f"High-end cinematic movie still of a {gender} {style_desc}. CRITICAL: Keep EXACT facial features, expression and mouth position from source image. 8k, movie poster quality."
+    negative_prompt = "distorted, cartoon, bad face, different hairstyle, changed mouth, invented teeth, text, watermark, logo."
     
     with open(image_path, "rb") as f:
-        img_data = f"data:image/jpeg;base64,{base64.b64encode(f.read()).decode()}"
-        
-    output = replicate.run(
-        "google/nano-banana-pro",
-        input={
-            "image_input": [img_data],
-            "prompt": prompt,
-            "negative_prompt": negative_prompt,
-            "prompt_strength": 0.50, # Mantendo equilíbrio entre IA e Foto Real
-            "guidance_scale": 12.0,
-            "aspect_ratio": "2:3"
-        }
-    )
-    return output[0]
+        output = replicate.run(
+            "google/nano-banana-pro",
+            input={
+                "image_input": [f],
+                "prompt": prompt,
+                "negative_prompt": negative_prompt,
+                "prompt_strength": 0.50,
+                "guidance_scale": 12.0,
+                "aspect_ratio": "2:3"
+            }
+        )
+    return output[0] if isinstance(output, list) else output
 
 # ==========================================
-# 5. APP FLOW
+# 5. FLUXO DO APLICATIVO
 # ==========================================
 
 load_custom_css()
 st.markdown("<h1>Hollywood Casting</h1>", unsafe_allow_html=True)
-st.markdown("<p class='subtitle'>Find your role in the next blockbuster.</p>", unsafe_allow_html=True)
+st.markdown("<p class='subtitle'>Action! Your career starts here.</p>", unsafe_allow_html=True)
+
+if not GOOGLE_KEY or not REPLICATE_KEY:
+    st.error("❌ API Keys missing in Secrets. Please configure GOOGLE_KEY and REPLICATE_KEY.")
+    st.stop()
 
 if 'step' not in st.session_state:
     st.session_state.step = 0
     st.session_state.answers = []
 
-# ETAPA: QUIZ
 if st.session_state.step < len(QUIZ_QUESTIONS):
     current = QUIZ_QUESTIONS[st.session_state.step]
     st.markdown(f"<h3 style='text-align:center;'>{current['question']}</h3>", unsafe_allow_html=True)
@@ -154,7 +158,6 @@ if st.session_state.step < len(QUIZ_QUESTIONS):
                 st.session_state.step += 1
                 st.rerun()
 
-# ETAPA: UPLOAD E GERAÇÃO
 elif st.session_state.step == len(QUIZ_QUESTIONS):
     st.markdown("### 📸 Final Step: Your Headshot")
     gender = st.selectbox("I identify as:", ["Actor", "Actress"])
@@ -163,40 +166,32 @@ elif st.session_state.step == len(QUIZ_QUESTIONS):
     if uploaded_file:
         img = Image.open(uploaded_file)
         img = ImageOps.exif_transpose(img) 
-        st.image(img, caption="Source Photo")
+        st.image(img, caption="Ready for Casting")
         
         if st.button("GENERATE MY MOVIE POSTER", type="primary"):
-            if GOOGLE_KEY == "SUA_CHAVE_AQUI" or REPLICATE_KEY == "SEU_TOKEN_AQUI":
-                st.error("Please insert your API Keys in the app.py file!")
-            else:
-                with st.status("🎬 Directing your scene...") as s:
-                    img.save("temp_actor.jpg")
-                    # Chamada Gemini 2.0
-                    verdict = get_casting_verdict(st.session_state.answers, GOOGLE_KEY)
-                    # Chamada Replicate
-                    poster_url = generate_poster("temp_actor.jpg", verdict['archetype'], gender, REPLICATE_KEY)
-                    
-                    st.session_state.final_poster = poster_url
-                    st.session_state.verdict = verdict
-                    st.session_state.step += 1
-                    st.rerun()
+            with st.status("🎬 Directing your scene...") as s:
+                img.save("temp_actor.jpg")
+                verdict = get_casting_verdict(st.session_state.answers, GOOGLE_KEY)
+                poster_url = generate_poster("temp_actor.jpg", verdict['archetype'], gender, REPLICATE_KEY)
+                
+                st.session_state.final_poster = poster_url
+                st.session_state.verdict = verdict
+                st.session_state.step += 1
+                st.rerun()
 
-# ETAPA: RESULTADO FINAL
 else:
     st.balloons()
-    st.markdown(f"<h2 style='text-align:center; color:#D4AF37;'>YOU WERE CAST AS: {st.session_state.verdict['archetype'].upper()}</h2>", unsafe_allow_html=True)
+    st.markdown(f"<h2 style='text-align:center; color:#D4AF37;'>CASTED AS: {st.session_state.verdict['archetype'].upper()}</h2>", unsafe_allow_html=True)
     st.markdown(f"<p style='text-align:center; font-style:italic;'>\"{st.session_state.verdict['reason']}\"</p>", unsafe_allow_html=True)
     
     st.image(st.session_state.final_poster, use_container_width=True)
     
-    # Download
     try:
-        response = requests.get(st.session_state.final_poster)
-        st.download_button("DOWNLOAD YOUR POSTER", data=response.content, file_name="my_hollywood_casting.png", mime="image/png")
-    except:
-        st.info("Poster ready for download.")
+        dl_res = requests.get(st.session_state.final_poster)
+        st.download_button("DOWNLOAD POSTER", data=dl_res.content, file_name="hollywood_star.png", mime="image/png")
+    except: pass
     
-    if st.button("AUDITION AGAIN"):
+    if st.button("NEW AUDITION"):
         st.session_state.step = 0
         st.session_state.answers = []
         if 'final_poster' in st.session_state: del st.session_state.final_poster
