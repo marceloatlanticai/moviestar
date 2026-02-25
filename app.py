@@ -13,14 +13,8 @@ from io import BytesIO
 # ==========================================
 # 1. CONFIGURAÇÃO DE CHAVES (VIA SECRETS)
 # ==========================================
-GOOGLE_KEY = ""
-REPLICATE_KEY = ""
-
-try:
-    GOOGLE_KEY = st.secrets["GOOGLE_KEY"]
-    REPLICATE_KEY = st.secrets["REPLICATE_KEY"]
-except:
-    pass
+GOOGLE_KEY = st.secrets.get("GOOGLE_KEY", "")
+REPLICATE_KEY = st.secrets.get("REPLICATE_KEY", st.secrets.get("REPLICATE_TOKEN", ""))
 
 # --- PAGE CONFIG ---
 st.set_page_config(
@@ -109,24 +103,30 @@ def get_casting_verdict(answers, api_key):
         return {"archetype": random.choice(list(CASTING_ARCHETYPES.keys())), "reason": "Your screen presence is undeniable."}
 
 def generate_poster(image_path, archetype_key, gender, api_key):
+    # Definindo a chave de API no ambiente
     os.environ["REPLICATE_API_TOKEN"] = api_key
     style_desc = CASTING_ARCHETYPES[archetype_key]
     
+    # Conversão manual para Base64 para evitar erro de upload do Replicate
+    with open(image_path, "rb") as image_file:
+        data = base64.b64encode(image_file.read()).decode('utf-8')
+        image_b64 = f"data:image/jpeg;base64,{data}"
+
     prompt = f"High-end cinematic movie still of a {gender} {style_desc}. CRITICAL: Keep EXACT facial features, expression and mouth position from source image. 8k, movie poster quality."
     negative_prompt = "distorted, cartoon, bad face, different hairstyle, changed mouth, invented teeth, text, watermark, logo."
     
-    with open(image_path, "rb") as f:
-        output = replicate.run(
-            "google/nano-banana-pro",
-            input={
-                "image_input": [f],
-                "prompt": prompt,
-                "negative_prompt": negative_prompt,
-                "prompt_strength": 0.50,
-                "guidance_scale": 12.0,
-                "aspect_ratio": "2:3"
-            }
-        )
+    # Chamada usando o formato que o Nano Banana Pro exige (lista de strings base64)
+    output = replicate.run(
+        "google/nano-banana-pro",
+        input={
+            "image_input": [image_b64],
+            "prompt": prompt,
+            "negative_prompt": negative_prompt,
+            "prompt_strength": 0.45,
+            "guidance_scale": 12.0,
+            "aspect_ratio": "2:3"
+        }
+    )
     return output[0] if isinstance(output, list) else output
 
 # ==========================================
@@ -138,7 +138,7 @@ st.markdown("<h1>Hollywood Casting</h1>", unsafe_allow_html=True)
 st.markdown("<p class='subtitle'>Action! Your career starts here.</p>", unsafe_allow_html=True)
 
 if not GOOGLE_KEY or not REPLICATE_KEY:
-    st.error("❌ API Keys missing in Secrets. Please configure GOOGLE_KEY and REPLICATE_KEY.")
+    st.error("❌ API Keys missing in Secrets. Please check GOOGLE_KEY and REPLICATE_KEY.")
     st.stop()
 
 if 'step' not in st.session_state:
@@ -174,10 +174,13 @@ elif st.session_state.step == len(QUIZ_QUESTIONS):
                 verdict = get_casting_verdict(st.session_state.answers, GOOGLE_KEY)
                 poster_url = generate_poster("temp_actor.jpg", verdict['archetype'], gender, REPLICATE_KEY)
                 
-                st.session_state.final_poster = poster_url
-                st.session_state.verdict = verdict
-                st.session_state.step += 1
-                st.rerun()
+                if poster_url:
+                    st.session_state.final_poster = poster_url
+                    st.session_state.verdict = verdict
+                    st.session_state.step += 1
+                    st.rerun()
+                else:
+                    st.error("Generation failed. Please try again.")
 
 else:
     st.balloons()
