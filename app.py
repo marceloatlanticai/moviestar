@@ -82,4 +82,90 @@ def generate_poster_assincrono(image_path, archetype_key, gender, api_key):
         model = client.models.get("google/nano-banana-pro")
         inputs = {
             "image_input": [img_b64],
-            "prompt
+            "prompt": f"Professional movie still of a {gender} as a {style}. High-end cinematic lighting, 8k masterpiece.",
+            "negative_prompt": "distorted, cartoon, bad face, text, logo, watermark",
+            "prompt_strength": 0.45,
+            "guidance_scale": 12.0,
+            "aspect_ratio": "2:3"
+        }
+        
+        prediction = client.predictions.create(version=model.latest_version, input=inputs)
+        
+        # Loop de progresso estilo JFM
+        progress_bar = st.progress(0, text="Initializing Director's Cut...")
+        start_time = time.time()
+        phrase_idx = 0
+        
+        while prediction.status not in ["succeeded", "failed", "canceled"]:
+            if time.time() - start_time > 300: break 
+            current_phrase = loading_phrases[phrase_idx % len(loading_phrases)]
+            progress_bar.progress(60, text=current_phrase)
+            phrase_idx += 1
+            time.sleep(4)
+            prediction.reload()
+            
+        if prediction.status == "succeeded":
+            progress_bar.empty()
+            output = prediction.output[0] if isinstance(prediction.output, list) else prediction.output
+            return output
+        return None
+    except Exception as e:
+        st.error(f"AI Director Error: {e}")
+        return None
+
+# ==========================================
+# 5. FLUXO DO APP
+# ==========================================
+st.markdown("<h1>Hollywood Casting</h1>", unsafe_allow_html=True)
+
+if 'step' not in st.session_state:
+    st.session_state.step = 0
+    st.session_state.answers = []
+
+QUIZ_QUESTIONS = [
+    {"step": 1, "question": "Choose the world you belong to:", "options": [{"label": "THE FRONTIER", "tag": "Explorer"}, {"label": "THE STREETS", "tag": "Vigilante"}]},
+    {"step": 2, "question": "What defines your strategy?", "options": [{"label": "THE ARCHITECT", "tag": "Mastermind"}, {"label": "THE AVENGER", "tag": "Epic"}]},
+    {"step": 3, "question": "Pick your visual atmosphere:", "options": [{"label": "NEON DREAMS", "tag": "Cyberpunk"}, {"label": "GOLDEN AGE", "tag": "Classic"}]}
+]
+
+if st.session_state.step < len(QUIZ_QUESTIONS):
+    q = QUIZ_QUESTIONS[st.session_state.step]
+    st.markdown(f"<h3 style='text-align:center;'>{q['question']}</h3>", unsafe_allow_html=True)
+    cols = st.columns(2)
+    for i, opt in enumerate(q['options']):
+        with cols[i]:
+            st.markdown(f"<div class='quiz-card'><h4>{opt['label']}</h4></div>", unsafe_allow_html=True)
+            if st.button(f"SELECT {opt['label']}", key=f"q{st.session_state.step}{i}"):
+                st.session_state.answers.append(opt['tag'])
+                st.session_state.step += 1
+                st.rerun()
+
+elif st.session_state.step == len(QUIZ_QUESTIONS):
+    st.markdown("### 📸 Final Step: Your Headshot")
+    gender = st.selectbox("I am an:", ["Actor", "Actress"])
+    file = st.file_uploader("Upload your photo", type=["jpg", "png", "jpeg"])
+    if file:
+        img = ImageOps.exif_transpose(Image.open(file)).convert('RGB')
+        st.image(img, width=400)
+        if st.button("GENERATE MY MOVIE POSTER"):
+            with st.status("🎬 Directing with Gemini 2.5 & Nano Banana...") as status:
+                img.save("temp.jpg")
+                v = get_casting_verdict(st.session_state.answers, GOOGLE_KEY)
+                url = generate_poster_assincrono("temp.jpg", v['archetype'], gender, REPLICATE_KEY)
+                if url:
+                    st.session_state.url = url
+                    st.session_state.v = v
+                    st.session_state.step += 1
+                    status.update(label="Cut! It's perfect.", state="complete")
+                    st.rerun()
+else:
+    st.balloons()
+    st.markdown(f"<h2 style='color:#D4AF37; text-align:center;'>THE {st.session_state.v['archetype'].upper()}</h2>", unsafe_allow_html=True)
+    st.image(st.session_state.url, use_container_width=True)
+    
+    res = requests.get(st.session_state.url)
+    st.download_button("DOWNLOAD POSTER", data=res.content, file_name="casting.png", mime="image/png")
+    
+    if st.button("RESTART AUDITION"):
+        st.session_state.step = 0
+        st.rerun()
