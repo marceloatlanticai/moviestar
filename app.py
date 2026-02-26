@@ -7,165 +7,167 @@ import requests
 from google import genai
 import replicate
 from PIL import Image, ImageOps
-from io import BytesIO
 import random
 
 # ==========================================
-# 1. CONFIGURAÇÃO DE CHAVES (VIA SECRETS)
+# 1. CONFIGURAÇÃO DE CHAVES
 # ==========================================
 GOOGLE_KEY = st.secrets.get("GOOGLE_KEY", "")
-REPLICATE_KEY = st.secrets.get("REPLICATE_KEY", st.secrets.get("REPLICATE_TOKEN", ""))
-
-if REPLICATE_KEY:
-    os.environ["REPLICATE_API_TOKEN"] = REPLICATE_KEY
-
-# --- PAGE CONFIG ---
-st.set_page_config(page_title="Hollywood Casting", page_icon="🎬", layout="wide")
+REPLICATE_KEY = st.secrets.get("REPLICATE_KEY", "")
 
 # ==========================================
-# 2. ARQUÉTIPOS CINEMATOGRÁFICOS
+# 2. RELEASES (Inspirados no Oscar - 100% Inglês & Seguro)
 # ==========================================
-CASTING_ARCHETYPES = {
-    "Resistance Leader": "Post-apocalyptic survivor, tactical gear, war paint, fierce gaze, desert ruins background, high contrast, gritty texture.",
-    "Noir Mastermind": "Classic Film Noir style, dramatic chiaroscuro lighting, sharp suit or trench coat, mysterious atmosphere, detective office shadows.",
-    "Frontier Explorer": "Sci-fi astronaut, high-tech space suit, bioluminescent details, alien planet landscape, cinematic lighting, epic scale.",
-    "Lone Justiciar": "Modern Western vigilante, leather jacket, silhouette against sunset, dusty atmosphere, intense cinematic gaze.",
-    "Epic Divinity": "High fantasy hero, ornate light armor, ethereal glowing elements, ancient forest background, magical atmosphere.",
-    "Elite Disciplinarian": "Intense dramatic portrait, sweat and grit, professional training environment, focused expression, cinematic backlight.",
-    "Classic Icon": "1920s high society glamour, luxury ballroom, velvet textures, classic Hollywood lighting, elegant stance.",
-    "Cyberpunk Vigilante": "Cybernetic enhancements, neon-lit rainy street, tech-wear, futuristic city, vibrant teal and orange lighting.",
-    "Zen Master": "Traditional martial arts attire, flowing fabric, serene temple or bamboo forest, perfect balance, soft morning mist.",
-    "Arcane Investigator": "Supernatural detective, ancient library, floating books, mystical artifacts, warm candlelight vs cold shadows."
+# Removidos nomes de filmes/atores para evitar copyright
+RELEASES = {
+    "The Frontier": {
+        "desc": "A determined space explorer leading humanity's last hope toward a distant, mysterious star system.",
+        "icon": "thefrontier.png"
+    },
+    "The Bench Storyteller": {
+        "desc": "A man with an extraordinary life story sharing his wisdom with strangers on a simple park bench.",
+        "icon": "benchstory.png"
+    },
+    "The Jazz Obsession": {
+        "desc": "A young, ambitious prodigy pushing physical and mental limits under a ruthless master's tutelage.",
+        "icon": "jazzobs.png"
+    },
+    "The Digital Heist": {
+        "desc": "A skilled specialist who enters people's subconscious to extract secrets through their dreams.",
+        "icon": "heist.png"
+    },
+    "The Silent Star": {
+        "desc": "A legendary performer from the golden era of cinema struggling to find their voice in a changing world.",
+        "icon": "silentstar.png"
+    },
+    "The Parasite House": {
+        "desc": "A clever strategist infiltrating a high-society household to secure a better future for their family.",
+        "icon": "parasite.png"
+    }
 }
 
-# ==========================================
-# 3. UI / CSS (ESTILO DARK CINEMA)
-# ==========================================
-st.markdown("""
-<style>
-    @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@900&family=Oswald:wght@700&display=swap');
-    :root { --gold: #D4AF37; --bg: #0F0F0F; }
-    html, body, .stApp { background-color: var(--bg) !important; color: white !important; }
-    h1 { font-family: 'Oswald' !important; color: var(--gold) !important; text-align: center; text-transform: uppercase; font-size: 3.5rem !important; }
-    .quiz-card { background: #1A1A1A; border: 1px solid #333; padding: 25px; border-radius: 10px; text-align: center; }
-    div.stButton > button { background: var(--gold) !important; color: black !important; font-weight: bold !important; width: 100%; border-radius: 5px; height: 50px; text-transform: uppercase; }
-</style>
-""", unsafe_allow_html=True)
+st.set_page_config(page_title="Hollywood Casting Game", page_icon="🎬", layout="wide")
+
+# Inicializa estados do jogo
+if 'scores' not in st.session_state:
+    st.session_state.scores = {k: 0 for k in RELEASES.keys()}
+if 'matches' not in st.session_state:
+    st.session_state.matches = 0
+if 'current_champion' not in st.session_state:
+    st.session_state.current_champion = random.choice(list(RELEASES.keys()))
 
 # ==========================================
-# 4. LÓGICA DE IA (ESTILO JFM)
+# 3. LÓGICA DE IA (Gemini 2.5 Flash)
 # ==========================================
-
-def get_casting_verdict(answers, api_key):
+def get_personality_profile(scores, api_key):
     try:
-        client = genai.Client(api_key=api_key.strip())
-        prompt = f"Casting Director: User likes {answers}. Match one from {list(CASTING_ARCHETYPES.keys())}. Return ONLY JSON: {{\"archetype\": \"name\", \"reason\": \"short sentence\"}}"
-        # Usando a versão solicitada no blueprint
+        client = genai.Client(api_key=api_key)
+        top_roles = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:3]
+        
+        prompt = f"""
+        Act as a top Hollywood Talent Agent. Based on these casting preferences: {top_roles}, 
+        write a 3-sentence personality profile for this actor. 
+        DO NOT mention real actors or movie titles. 
+        Focus on their 'screen presence', 'acting range', and 'vibe'. 
+        Be professional and encouraging. Language: English.
+        """
         response = client.models.generate_content(model='gemini-2.5-flash', contents=[prompt])
-        return json.loads(response.text.replace("```json", "").replace("```", "").strip())
+        return response.text.strip()
     except:
-        return {"archetype": random.choice(list(CASTING_ARCHETYPES.keys())), "reason": "Your screen presence is undeniable."}
+        return "You possess a versatile screen presence that blends deep emotional vulnerability with a commanding physical intensity."
 
-def generate_poster_assincrono(image_path, archetype_key, gender, api_key):
-    client = replicate.Client(api_token=api_key.strip())
-    style = CASTING_ARCHETYPES[archetype_key]
+# ==========================================
+# 4. GERAÇÃO DE IMAGEM (Nano Banana)
+# ==========================================
+def generate_blended_poster(image_path, scores, gender, api_key):
+    client = replicate.Client(api_token=api_key)
+    sorted_scores = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    top1 = sorted_scores[0][0]
     
-    # Codificação idêntica ao JFM
-    with open(image_path, "rb") as f:
-        img_b64 = f"data:image/jpeg;base64,{base64.b64encode(f.read()).decode('utf-8')}"
+    # Prompt focado no vencedor, mas mantendo a essência do duelo
+    dna_prompt = f"A professional high-end cinematic movie still of a {gender} in a scene described as: {RELEASES[top1]['desc']}. Masterpiece lighting, 8k, realistic."
 
-    # Frases de carregamento estilo Cinema
-    loading_phrases = ["🎬 Setting up the lights...", "📽️ Loading 35mm film...", "🎭 Applying cinematic makeup...", "🎞️ Developing the negatives...", "✨ Calibrating star power...", "🌟 Casting the spell..."]
+    with open(image_path, "rb") as f:
+        img_b64 = f"data:image/jpeg;base64,{base64.b64encode(f.read()).decode()}"
 
     try:
-        # A MÁGICA: Pega a versão exata do modelo (Fix 422)
         model = client.models.get("google/nano-banana-pro")
-        inputs = {
-            "image_input": [img_b64],
-            "prompt": f"Professional movie still of a {gender} as a {style}. High-end cinematic lighting, 8k masterpiece.",
-            "negative_prompt": "distorted, cartoon, bad face, text, logo, watermark",
-            "prompt_strength": 0.45,
-            "guidance_scale": 12.0,
-            "aspect_ratio": "2:3"
-        }
-        
-        prediction = client.predictions.create(version=model.latest_version, input=inputs)
-        
-        # Loop de progresso estilo JFM
-        progress_bar = st.progress(0, text="Initializing Director's Cut...")
-        start_time = time.time()
-        phrase_idx = 0
-        
-        while prediction.status not in ["succeeded", "failed", "canceled"]:
-            if time.time() - start_time > 300: break 
-            current_phrase = loading_phrases[phrase_idx % len(loading_phrases)]
-            progress_bar.progress(60, text=current_phrase)
-            phrase_idx += 1
-            time.sleep(4)
-            prediction.reload()
+        output = client.predictions.create(
+            version=model.latest_version,
+            input={
+                "image_input": [img_b64],
+                "prompt": dna_prompt,
+                "prompt_strength": 0.45,
+                "guidance_scale": 12.0,
+                "aspect_ratio": "2:3"
+            }
+        )
+        while output.status not in ["succeeded", "failed"]:
+            time.sleep(2)
+            output.reload()
+        return output.output[0]
+    except: return None
+
+# ==========================================
+# 5. UI PRINCIPAL
+# ==========================================
+st.markdown("<h1 style='text-align:center; color:#D4AF37;'>HOLLYWOOD CASTING TOURNAMENT</h1>", unsafe_allow_html=True)
+
+# Mecânica de Duelo (Limite de 5 rodadas)
+if st.session_state.matches < 5:
+    st.markdown(f"<p style='text-align:center;'>Match #{st.session_state.matches + 1}: Which role defines your talent?</p>", unsafe_allow_html=True)
+    
+    challenger = random.choice([k for k in RELEASES.keys() if k != st.session_state.current_champion])
+    col1, col2 = st.columns(2)
+    
+    for i, role in enumerate([st.session_state.current_champion, challenger]):
+        with [col1, col2][i]:
+            # Ícones circulares
+            try:
+                st.image(f"icons/{RELEASES[role]['icon']}", width=150)
+            except:
+                st.markdown(f"<div style='width:150px; height:150px; border-radius:50%; background:#333; margin:0 auto; display:flex; align-items:center; justify-content:center; color:white; font-size:40px;'>{role[:1]}</div>", unsafe_allow_html=True)
             
-        if prediction.status == "succeeded":
-            progress_bar.empty()
-            output = prediction.output[0] if isinstance(prediction.output, list) else prediction.output
-            return output
-        return None
-    except Exception as e:
-        st.error(f"AI Director Error: {e}")
-        return None
-
-# ==========================================
-# 5. FLUXO DO APP
-# ==========================================
-st.markdown("<h1>Hollywood Casting</h1>", unsafe_allow_html=True)
-
-if 'step' not in st.session_state:
-    st.session_state.step = 0
-    st.session_state.answers = []
-
-QUIZ_QUESTIONS = [
-    {"step": 1, "question": "Choose the world you belong to:", "options": [{"label": "THE FRONTIER", "tag": "Explorer"}, {"label": "THE STREETS", "tag": "Vigilante"}]},
-    {"step": 2, "question": "What defines your strategy?", "options": [{"label": "THE ARCHITECT", "tag": "Mastermind"}, {"label": "THE AVENGER", "tag": "Epic"}]},
-    {"step": 3, "question": "Pick your visual atmosphere:", "options": [{"label": "NEON DREAMS", "tag": "Cyberpunk"}, {"label": "GOLDEN AGE", "tag": "Classic"}]}
-]
-
-if st.session_state.step < len(QUIZ_QUESTIONS):
-    q = QUIZ_QUESTIONS[st.session_state.step]
-    st.markdown(f"<h3 style='text-align:center;'>{q['question']}</h3>", unsafe_allow_html=True)
-    cols = st.columns(2)
-    for i, opt in enumerate(q['options']):
-        with cols[i]:
-            st.markdown(f"<div class='quiz-card'><h4>{opt['label']}</h4></div>", unsafe_allow_html=True)
-            if st.button(f"SELECT {opt['label']}", key=f"q{st.session_state.step}{i}"):
-                st.session_state.answers.append(opt['tag'])
-                st.session_state.step += 1
+            st.markdown(f"<h3 style='text-align:center;'>{role.upper()}</h3>", unsafe_allow_html=True)
+            st.markdown(f"<p style='text-align:center; padding:0 20px;'>{RELEASES[role]['desc']}</p>", unsafe_allow_html=True)
+            
+            if st.button(f"CAST ME AS {role.upper()}", key=f"btn_{role}_{st.session_state.matches}"):
+                st.session_state.scores[role] += 1
+                st.session_state.current_champion = role
+                st.session_state.matches += 1
                 st.rerun()
 
-elif st.session_state.step == len(QUIZ_QUESTIONS):
-    st.markdown("### 📸 Final Step: Your Headshot")
-    gender = st.selectbox("I am an:", ["Actor", "Actress"])
-    file = st.file_uploader("Upload your photo", type=["jpg", "png", "jpeg"])
-    if file:
-        img = ImageOps.exif_transpose(Image.open(file)).convert('RGB')
-        st.image(img, width=400)
-        if st.button("GENERATE MY MOVIE POSTER"):
-            with st.status("🎬 Directing with Gemini 2.5 & Nano Banana...") as status:
-                img.save("temp.jpg")
-                v = get_casting_verdict(st.session_state.answers, GOOGLE_KEY)
-                url = generate_poster_assincrono("temp.jpg", v['archetype'], gender, REPLICATE_KEY)
-                if url:
-                    st.session_state.url = url
-                    st.session_state.v = v
-                    st.session_state.step += 1
-                    status.update(label="Cut! It's perfect.", state="complete")
-                    st.rerun()
+# Resultado Final
 else:
-    st.balloons()
-    st.markdown(f"<h2 style='color:#D4AF37; text-align:center;'>THE {st.session_state.v['archetype'].upper()}</h2>", unsafe_allow_html=True)
-    st.image(st.session_state.url, use_container_width=True)
+    st.success("Tournament Complete! Analyzing your actor DNA...")
+    gender = st.selectbox("Identify your screen presence:", ["Actor", "Actress"])
+    file = st.file_uploader("Upload your professional headshot", type=["jpg", "png", "jpeg"])
     
-    res = requests.get(st.session_state.url)
-    st.download_button("DOWNLOAD POSTER", data=res.content, file_name="casting.png", mime="image/png")
-    
-    if st.button("RESTART AUDITION"):
-        st.session_state.step = 0
-        st.rerun()
+    if file:
+        img = Image.open(file)
+        if st.button("GENERATE FINAL VERDICT & POSTER", type="primary"):
+            with st.status("🎬 Directing your scene...") as status:
+                img.save("temp.jpg")
+                
+                # Gera Perfil de Personalidade
+                profile = get_personality_profile(st.session_state.scores, GOOGLE_KEY)
+                
+                # Gera Imagem
+                poster_url = generate_blended_poster("temp.jpg", st.session_state.scores, gender, REPLICATE_KEY)
+                
+                if poster_url:
+                    st.divider()
+                    st.markdown(f"### 🎭 What kind of {gender} are you?")
+                    st.info(profile)
+                    
+                    st.image(poster_url, use_container_width=True)
+                    
+                    # Download
+                    res = requests.get(poster_url)
+                    st.download_button("DOWNLOAD YOUR POSTER", data=res.content, file_name="hollywood_poster.png", mime="image/png")
+                    st.balloons()
+                    status.update(label="Cut! It's a wrap.", state="complete")
+
+if st.button("RESTART TOURNAMENT"):
+    st.session_state.clear()
+    st.rerun()
