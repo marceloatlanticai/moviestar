@@ -6,13 +6,13 @@ import requests
 from google import genai
 import replicate
 from PIL import Image, ImageOps
-from io import BytesIO
+import random
 
 # ==========================================
 # 1. CONFIGURAÇÃO DE CHAVES (VIA SECRETS)
 # ==========================================
 GOOGLE_KEY = st.secrets.get("GOOGLE_KEY", "")
-REPLICATE_KEY = st.secrets.get("REPLICATE_KEY", st.secrets.get("REPLICATE_TOKEN", ""))
+REPLICATE_KEY = st.secrets.get("REPLICATE_KEY", st.secrets.get("REPLICATE_API_TOKEN", ""))
 
 if REPLICATE_KEY:
     os.environ["REPLICATE_API_TOKEN"] = REPLICATE_KEY
@@ -21,7 +21,7 @@ if REPLICATE_KEY:
 st.set_page_config(page_title="Hollywood Casting", page_icon="🎬", layout="wide")
 
 # ==========================================
-# 2. ARQUÉTIPOS CINEMATOGRÁFICOS
+# 2. DICIONÁRIOS DE ARQUÉTIPOS
 # ==========================================
 CASTING_ARCHETYPES = {
     "Resistance Leader": "A post-apocalyptic survivor, tactical gear, war paint, fierce gaze, desert ruins, cinematic lighting, gritty masterpiece.",
@@ -36,14 +36,8 @@ CASTING_ARCHETYPES = {
     "Arcane Investigator": "Supernatural detective, ancient library, floating books, mystical artifacts, warm candlelight."
 }
 
-QUIZ_QUESTIONS = [
-    {"step": 1, "question": "Choose the world you belong to:", "options": [{"label": "THE FRONTIER", "tag": "Explorer"}, {"label": "THE STREETS", "tag": "Vigilante"}]},
-    {"step": 2, "question": "What defines your strategy?", "options": [{"label": "THE ARCHITECT", "tag": "Mastermind"}, {"label": "THE AVENGER", "tag": "Epic"}]},
-    {"step": 3, "question": "Pick your visual atmosphere:", "options": [{"label": "NEON DREAMS", "tag": "Cyberpunk"}, {"label": "GOLDEN AGE", "tag": "Classic"}]}
-]
-
 # ==========================================
-# 3. UI / CSS
+# 3. UI / CSS PREMIUM
 # ==========================================
 st.markdown("""
 <style>
@@ -58,27 +52,32 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 4. LÓGICA DE IA
+# 4. LÓGICA DE IA (GEMINI 2.5 FLASH)
 # ==========================================
 def get_casting_verdict(answers, api_key):
     try:
+        # ATUALIZADO: Motor Gemini 2.5 Flash
         client = genai.Client(api_key=api_key)
         prompt = f"Casting Director: User likes {answers}. Match one from {list(CASTING_ARCHETYPES.keys())}. Return ONLY JSON: {{\"archetype\": \"name\", \"reason\": \"short sentence\"}}"
-        response = client.models.generate_content(model='gemini-2.0-flash', contents=[prompt])
-        return json.loads(response.text.replace("```json", "").replace("```", "").strip())
-    except:
-        return {"archetype": "Classic Icon", "reason": "You have a timeless screen presence."}
+        
+        response = client.models.generate_content(model='gemini-2.5-flash', contents=[prompt])
+        clean_text = response.text.replace("```json", "").replace("```", "").strip()
+        return json.loads(clean_text)
+    except Exception as e:
+        # Resiliência: Caso a quota do 2.5 falhe, o app não quebra
+        st.warning("🎬 Gemini 2.5 is initializing or at capacity. Back-up Director is handling the script.")
+        archetype = random.choice(list(CASTING_ARCHETYPES.keys()))
+        return {"archetype": archetype, "reason": "Your screen presence is undeniable and highly versatile."}
 
 def generate_poster(image_path, archetype_key, gender, api_key):
     client = replicate.Client(api_token=api_key)
     style = CASTING_ARCHETYPES[archetype_key]
     
     with open(image_path, "rb") as f:
-        # Codificação em Base64 para garantir compatibilidade com o modelo do Google
         img_b64 = f"data:image/jpeg;base64,{base64.b64encode(f.read()).decode()}"
 
     try:
-        # Chamada para a versão estável do Nano Banana Pro
+        # Chamada Nano Banana via Replicate
         output = client.run(
             "lucataco/google-nano-banana:92f7c004a4341b559ba962804b3117565b530f9a76d1a9da5e386a347b744f43",
             input={
@@ -96,13 +95,19 @@ def generate_poster(image_path, archetype_key, gender, api_key):
         return None
 
 # ==========================================
-# 5. FLOW DO APP
+# 5. FLUXO DO APP
 # ==========================================
 st.markdown("<h1>Hollywood Casting</h1>", unsafe_allow_html=True)
 
 if 'step' not in st.session_state:
     st.session_state.step = 0
     st.session_state.answers = []
+
+QUIZ_QUESTIONS = [
+    {"step": 1, "question": "Choose the world you belong to:", "options": [{"label": "THE FRONTIER", "tag": "Explorer"}, {"label": "THE STREETS", "tag": "Vigilante"}]},
+    {"step": 2, "question": "What defines your strategy?", "options": [{"label": "THE ARCHITECT", "tag": "Mastermind"}, {"label": "THE AVENGER", "tag": "Epic"}]},
+    {"step": 3, "question": "Pick your visual atmosphere:", "options": [{"label": "NEON DREAMS", "tag": "Cyberpunk"}, {"label": "GOLDEN AGE", "tag": "Classic"}]}
+]
 
 if st.session_state.step < len(QUIZ_QUESTIONS):
     q = QUIZ_QUESTIONS[st.session_state.step]
@@ -125,7 +130,7 @@ elif st.session_state.step == len(QUIZ_QUESTIONS):
         img = ImageOps.exif_transpose(img)
         st.image(img, width=400)
         if st.button("CAST ME!"):
-            with st.status("🎬 Directing..."):
+            with st.status("🎬 Directing with Gemini 2.5 Flash..."):
                 img.save("temp.jpg")
                 v = get_casting_verdict(st.session_state.answers, GOOGLE_KEY)
                 url = generate_poster("temp.jpg", v['archetype'], gender, REPLICATE_KEY)
